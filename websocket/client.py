@@ -1,3 +1,12 @@
+"""
+You should not make an instance of the Client class yourself, rather you should listen for new connections with 
+:meth:`~websocket.server.WebsocketServer.connection`
+
+>>> @socket.connection
+>>> async def on_connection(client: Client):
+...     # Here you can use the client, register callbacks on it or send it messages
+...     await client.writer.ping()
+"""
 import asyncio
 import logging
 
@@ -10,6 +19,15 @@ logger = logging.getLogger(__name__)
 
 
 class Client:
+    """
+    :ivar addr: IPv4 or IPv6 address of the client.
+    :type addr: str
+    :ivar port: The port the client opened it's socket on.
+    :type port: int
+    :ivar writer: The writer used for writing frames to the client.
+    :type writer: WebSocketWriter
+    """
+
     def __init__(self, state, addr, port, writer, loop):
         self.state = state
         self.addr = addr
@@ -28,26 +46,78 @@ class Client:
 
         @self.ping
         async def on_ping(payload, length):
-            await self.writer._pong(length, payload)
+            await self.writer.pong(length, payload)
 
         @self.pong
         async def on_pong(payload, length):
             pass
 
         @self.closed
-        async def on_closed(reason):
+        async def on_closed(code, reason):
             pass
 
     def message(self, fn):
+        """Decorator for registering the on_message callback.
+        
+        :param fn: The callback to register.
+        
+        The callback should be async and take one parameter, a :class:`~websocket.stream.reader.WebSocketReader`
+        
+        This callback is called when the server receives an valid data frame, 
+        if an exception occurs after the first valid frame e.g. if an text frame 
+        contains invalid utf-8, or if it's an invalid fragmented message, then we 
+        send the exception to the reader with :meth:`~asyncio.StreamReader.set_exception`.
+        
+        >>> @client.message
+        >>> async def on_message(reader: WebSocketReader):
+        ...     print("Got message " + await reader.get())
+        """
         self.on_message = fn
 
     def ping(self, fn):
+        """Decorator for registering the on_ping callback.
+        
+        :param fn: The callback to register.
+        
+        If you set this callback you will override the default behaviour of sending pongs back to the client when 
+        receiving pings. If you want to keep this behaviour call :meth:`~websocket.stream.writer.WebSocketWriter.pong`.
+        
+        The callback should be async and take two parameters, :class:`bytes` payload, and :class:`int` length.
+        This callback is called when we receive a valid ping from the client.
+        
+        >>> @client.ping
+        >>> async def on_ping(payload: bytes, length: int):
+        ...     print("Received ping from client")
+        ...     await self.writer.pong(length, payload)
+        """
         self.on_ping = fn
 
     def pong(self, fn):
+        """Decorator for registering the on_pong callback.
+        
+        :param fn: The callback to register.
+        
+        The callback should be async and take two parameters, :class:`bytes` payload, and :class:`int` length
+        This callback is called when we receive a valid pong from the client.
+
+        >>> @client.pong
+        >>> async def on_pong(payload: bytes, length: int):
+        ...     print("Received pong from client")
+        """
         self.on_pong = fn
 
     def closed(self, fn):
+        """Decorator for registering the on_closed callback.
+        
+        :param fn: The callback to register.
+        
+        The callback should be async and take two parameters, :class:`bytes` code of length 2, and :class:`str` reason.
+        This callback is called when the connection this this client is closing.
+
+        >>> @client.closed
+        >>> async def on_closed(code: bytes, reason: str):
+        ...     print("Connection with client is closing for " + reason)
+        """
         self.on_closed = fn
 
     async def close_with_read(self, reader, code, reason):
@@ -58,8 +128,9 @@ class Client:
         await close
         return data
 
-    async def close(self, code, reason):
+    async def close(self, code: bytes, reason: str):
         if not self.server_has_initiated_close:
+            asyncio.ensure_future(self.on_closed(code, reason), loop=self._loop)
             self.server_has_initiated_close = True
             await self.writer.close(code, reason)
 
@@ -74,7 +145,7 @@ class Client:
                 self._reader.decoder.decode(b'', True)
                 self._reader.feed_eof()
             else:
-                self.continuation = self._reader.type
+                self.continuation = self._reader.data_type
         except UnicodeDecodeError as e:
             self._reader.set_exception(e)
             await self.close(Reasons.INCONSISTENT_DATA.value,
@@ -159,7 +230,6 @@ class Client:
         length = await buffer.feed(reader)
         reason = await buffer.readexactly(length)
 
-        asyncio.ensure_future(self.on_closed(reason), loop=self._loop)
         if not self.server_has_initiated_close:
             if length > WebSocketWriter.MAX_LEN_7:
                 code, reason = Reasons.PROTOCOL_ERROR.value, "control frame too long"

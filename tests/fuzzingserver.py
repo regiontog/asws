@@ -3,7 +3,7 @@ import concurrent
 import logging
 
 from websocket.client import Client
-from websocket.server import WebsocketServer
+from websocket.server import WebSocketServer
 from websocket.stream.reader import WebSocketReader
 
 logging.basicConfig(level=logging.WARNING,
@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.WARNING,
 logger = logging.getLogger(__name__)
 
 loop = asyncio.get_event_loop()
-socket = WebsocketServer("localhost", 3001, loop=loop)
+socket = WebSocketServer("localhost", 3001, loop=loop)
 
 
 @socket.connection

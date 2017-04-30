@@ -1,3 +1,23 @@
+"""Usage:
+>>> loop = asyncio.get_event_loop()
+>>> socket = WebSocketServer("localhost", 3001, loop=loop)
+>>>
+>>> @socket.connection
+>>> async def on_connection(client: Client):
+...     logger.info(f'Connection from {client.addr, client.port}')
+...     logger.info(f'All clients: {socket.clients}')
+...
+...     @client.message
+...     async def on_message(reader: WebSocketReader):
+...         await client.writer.send(await reader.get())
+>>>
+>>> with socket as server:
+...     logger.info(f'Serving on {server.sockets[0].getsockname()}')
+...     loop.run_forever()
+>>>
+>>> loop.close()
+"""
+
 import asyncio
 import logging
 import ssl
@@ -11,11 +31,22 @@ from .stream.reader import WebSocketReader
 logger = logging.getLogger(__name__)
 
 
-class WebsocketServer:
+class WebSocketServer:
+    """
+    :ivar addr: The server IPv4 or IPv6 address.
+    :type addr: str
+    :ivar port: The server port.
+    :type port: int
+    :ivar certs: SSL certifications
+    :type certs: (certfile, keyfile)
+    :ivar clients: All of the connected clients.
+    :type clients: {(str, int): Client}
+    :ivar loop: The event loop to run in.
+    :type loop: AbstractEventLoop 
+    """
     NEWLINE = b'\r\n'
 
     def __init__(self, addr, port, certs=None, loop=None):
-
         if loop is None:
             self.loop = asyncio.get_event_loop()
         else:
@@ -29,6 +60,7 @@ class WebsocketServer:
         self.clients = {}
 
     def __enter__(self):
+        """Start the server when entering the context manager."""
         context = None
         if self.certs:
             crt, key = self.certs
@@ -40,11 +72,28 @@ class WebsocketServer:
         return self.server
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """Stop server when exiting context manager"""
         self.loop.run_until_complete(self.disconnect_all())
         self.server.close()
         self.loop.run_until_complete(self.server.wait_closed())
 
     def connection(self, fn):
+        """Decorator for registering the on_connection callback.
+        
+        :param fn: The callback to register.
+        
+        The callback should be async and take one parameter, :class:`~websocket.client.Client`.
+        This callback is called when a new client connects with the websocket.
+
+        >>> @socket.connection
+        >>> async def on_connection(client: Client):
+        ...     for other_client in socket.clients.vals():
+        ...         other_client.writer.send("New client connected.")
+        ...     
+        ...     @client.message
+        ...     async def on_message(reader: WebSocketReader):
+        ...         await client.writer.send(await reader.get())
+        """
         self._on_connection = fn
 
     async def connect_client(self, client):
@@ -61,15 +110,28 @@ class WebsocketServer:
             for future in pending:
                 future.cancel()
 
-    async def disconnect_client(self, client, port=None):
-        """If port is None try to disconnect client, else interpret client as the client address"""
+    async def disconnect_client(self, client, port=None, code=Reasons.NORMAL.value.code, reason=''):
+        """This method is the only clean way to close a connection with a client.
+        
+        >>> @socket.connection
+        >>> async def on_connection(client: Client):
+        ...     print("Client connected, disconnecting it...")
+        ...     socket.disconnect_client(client)
+
+        :param client: Depends on port parameter.
+        :param port: If port is None try to disconnect client, else interpret client as the client address
+        :param code: The code to close the connection with, make sure it is valid. 99% of the time it should be :attr:`websocket.reasons.Reasons.NORMAL.value.code`
+        :type code: bytes
+        :param reason: The reason for closing the connection, may be ''. Should not be longer than 123 characters.
+        :type reason: str
+        """
         if port is not None:
             try:
                 client = self.clients[client, port]
             except KeyError:
                 return  # Client does not exist, nothing to to
 
-        await client.close()
+        await client.close(code, reason)
         del self.clients[client.addr, client.port]
 
     def delete_client(self, addr, port):
@@ -117,6 +179,13 @@ class WebsocketServer:
             self.delete_client(addr, port)
 
     def wait(self, fut, timeout):
+        """Helper method for creating a future that times out after a timeout.
+        
+        :param fut: The future to time.
+        :param timeout: The timeout in seconds.
+        
+        :return: future
+        """
         return asyncio.wait_for(fut, timeout=timeout, loop=self.loop)
 
     async def handle_handshake(self, reader, writer):

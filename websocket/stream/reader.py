@@ -1,3 +1,13 @@
+"""
+You should not make an instance of the WebSocketReader class yourself, rather you should only make use of it through a 
+callback registerd with :meth:`~websocket.client.Client.message`
+
+>>> @client.message
+>>> async def on_message(reader: WebSocketReader):
+...     # Read from the reader here...
+...     print(await reader.get())
+"""
+
 import asyncio
 import codecs
 import logging
@@ -9,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 class WebSocketReader(asyncio.StreamReader):
+    """
+    :ivar data_type: The type of data frame the client sent us, this is the default kind for :meth:`get`.
+    :type data_type: :class:`~websocket.enums.DataType`
+    """
     BUFFER_SIZE = 128
     MASK_BIT = 1 << 7
     FIN_BIT = 1 << 7
@@ -19,12 +33,19 @@ class WebSocketReader(asyncio.StreamReader):
 
     def __init__(self, kind):
         super().__init__()
-        self.type = kind
+        self.data_type = kind
         self.decoder = WebSocketReader.decoder_factory()
 
     async def get(self, kind=None):
+        """Reads all of the bytes from the stream. 
+         
+        :param kind: Specifies the type of data returned, default is :attr:`~websocket.stream.reader.WebSocketReader.data_type`
+        :type kind: :class:`~websocket.enums.DataType`
+        
+        :return: :class:`bytes` if kind is DataType.BINARY, :class:`str` if kind is DataType.TEXT
+        """
         if kind is None:
-            kind = self.type
+            kind = self.data_type
 
         data = await self.read()
         if kind == DataType.TEXT:
@@ -37,7 +58,7 @@ class WebSocketReader(asyncio.StreamReader):
         return await self._feed(reader, length, mask_flag)
 
     async def _feed(self, reader, length, mask_flag):
-        if self.type is DataType.TEXT:
+        if self.data_type is DataType.TEXT:
             async for data in self._parse_raw(reader, mask_flag, length):
                 self.decoder.decode(data)
                 self.feed_data(data)

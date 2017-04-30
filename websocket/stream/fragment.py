@@ -1,3 +1,11 @@
+"""
+You should not make an instance of the FragmentContext class yourself, rather you should only 
+get instances through :meth:`websocket.stream.writer.WebSocketWriter.fragment`
+
+>>> async with client.writer.fragment() as stream:
+...     stream.send('Hello ')
+...     stream.send("World!")
+"""
 import asyncio
 import logging
 
@@ -7,13 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 class FragmentContext:
+    """A context manager that can send fragments to a client."""
     class Break(Exception):
-        """Break out of the with statement"""
+        pass
 
-    def __init__(self, writer, kind, loop):
+    def __init__(self, writer, loop):
         self.loop = loop
         self.writer = writer
-        self.data_type = kind
+        self.data_type = None
         self.previous_fragment = None  # We need to track this so that we can set the fin bit on the last fragment.
         self.push_task = None
         self.first_write = True
@@ -36,12 +45,18 @@ class FragmentContext:
         self.writer.writer.write((op_code | fin << 7).to_bytes(1, 'big'))
         await self.writer.raw_send(fragment, self.data_type)
 
-    async def send(self, fragment, force=False):
+    async def send(self, data, force=False):
+        """Que a message to be sent, it will be chopped into fragments and accumulated with other fragments
+        
+        :param data: The data you with to send, must be either :class:`str` or :class:`bytes`. 
+        :param force: If true send message even if the connection is closing e.g. we got valid message after having previously been sent a close frame from the client or after having received invalid frame(s) 
+        :type force: bool
+        """
         if not self.writer.ensure_open(force):
             raise self.Break
 
         if self.data_type is None:
-            if isinstance(fragment, str):
+            if isinstance(data, str):
                 self.data_type = DataType.TEXT
             else:
                 self.data_type = DataType.BINARY
@@ -50,7 +65,7 @@ class FragmentContext:
             await self._push(self.previous_fragment)
 
         logger.debug("Queuing fragment")
-        self.previous_fragment = fragment
+        self.previous_fragment = data
 
     async def finish_send(self):
         if self.previous_fragment is not None:
@@ -58,9 +73,11 @@ class FragmentContext:
             await self.push_task
 
     async def __aenter__(self):
+        """Enter the context manager"""
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Exit the context manager"""
         if exc_type == self.Break:
             return True
 

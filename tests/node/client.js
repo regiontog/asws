@@ -15,7 +15,7 @@ ws.on('open', function open() {
 });
 
 ws.on('pong', function incoming(data, flags) {
-    console.log("Got _pong");
+    console.log("Got pong");
     console.log(data);
     console.log(flags);
 });
