@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <script>
+        function init() {
+            websocket = new WebSocket("ws://localhost:3001");
+
+            websocket.onopen = () => {
+                document.getElementById("output").innerHTML += "<p>> CONNECTED</p>";
+            };
+
+            websocket.onmessage = evt => {
+                document.getElementById("output").innerHTML += "<p style='color: blue;'>> RESPONSE: " + evt.data + "</p>";
+            };
+
+            websocket.onerror = evt  => {
+                document.getElementById("output").innerHTML += "<p style='color: red;'>> ERROR: " + evt.data + "</p>";
+            };
+        }
+
+        function sendMessage(message)  {
+            document.getElementById("output").innerHTML += "<p>> SENT: " + message + "</p>";
+
+            websocket.send(message);
+        }
+
+        window.addEventListener("load", init, false);
+    </script>
+</head>
+<body>
+    <div id="output"></div>
+</body>
+</html>
