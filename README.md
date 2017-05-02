@@ -15,6 +15,10 @@ pip install asws3
 # Usage
 ## Basic echo server
 ```python
+from websocket.client import Client
+from websocket.server import WebSocketServer
+from websocket.stream.reader import WebSocketReader
+
 loop = asyncio.get_event_loop()
 socket = WebSocketServer("localhost", 3001, loop=loop)
 
