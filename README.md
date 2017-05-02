@@ -1,7 +1,7 @@
 # Features
 - Asynchronous with python asyncio
 - Multiple clients
-- Passes autobahn tests 1-10 (11-13 needs compression extension)
+- [Passes autobahn tests 1-10 (11-13 needs compression extension)](https://regiontog.github.io/asws-pages/_static/report/autobahn/index)
 - All control frames with status and reason
 - Heartbeat
 
@@ -16,6 +16,10 @@ pip install asws3
 # Usage
 ## Basic echo server
 ```python
+from websocket.client import Client
+from websocket.server import WebSocketServer
+from websocket.stream.reader import WebSocketReader
+
 loop = asyncio.get_event_loop()
 socket = WebSocketServer("localhost", 3001, loop=loop)
 
