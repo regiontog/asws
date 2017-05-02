@@ -7,7 +7,6 @@ make use of it through :attr:`websocket.client.Client.writer`
 import asyncio
 import logging
 
-from websocket.stream.buffer import Buffer
 from .fragment import FragmentContext
 from ..enums import DataType
 from ..reasons import Reasons
@@ -45,9 +44,9 @@ class WebSocketWriter:
         return True
 
     async def send(self, data, force=False):
-        """Send a data frame to the client, the type of data is determined from the data parameter.
+        """Send some data to the client, the type of data is determined from the data parameter.
         
-        :param data: The data you with to send, must be either :class:`str` or :class:`bytes`. 
+        :param data: The data you wish to send, must be either :class:`str` or :class:`bytes`. 
         :param force: If true send message even if the connection is closing e.g. we got valid message after having previously been sent a close frame from the client or after having received invalid frame(s) 
         :type force: bool
         """
@@ -111,6 +110,12 @@ class WebSocketWriter:
         await self.writer.drain()
 
     def write_frame(self, header, data, length):
+        """Low level method to write a frame to the client, does not flush.
+        
+        :param header: The frame header, containing the frame type and the fin bit 
+        :param data:  The data to include in the frame
+        :param length:  The length of the data
+        """
         frame = bytearray(header)
 
         if length > WebSocketWriter.MAX_LEN_64:
@@ -130,17 +135,33 @@ class WebSocketWriter:
     def fragment(self):
         """Create a async context manager that can send fragmented messages.
         
-        :param chunksize: The size of each fragment to send.
-        :type chunksize: int
-        
         :return: :class:`~websocket.stream.fragment.FragmentContext`
         """
         return FragmentContext(self, self.loop)
 
-    async def feed_worker(self, buffer, writing_future, op_code, chunksize=1024, drain_every=4096):
+    async def feed(self, buffer, op_code=None, chunksize=1024, drain_every=4096, force=False):
+        """Feed the contents of a :class:`~websocket.stream.buffer.Buffer` to the client in `chunksize` fragments.
+        
+        :param buffer: The buffer to read from
+        :type buffer: Buffer
+        :param op_code: The type of data to send, see :class:`~websocket.enums.DataType`, if None try to read buffer.data_type as if buffer was a :class:`~websocket.stream.reader.WebSocketReader`
+        :type op_code: int
+        :param chunksize: The size of each fragment
+        :type chunksize: int
+        :param drain_every: How often we forcefully drain the writer
+        :type drain_every: int
+        :param force: If true send message even if the connection is closing e.g. we got valid message after having previously been sent a close frame from the client or after having received invalid frame(s) 
+        :type force: bool
+        """
         data = bytearray(chunksize)
 
-        try:
+        if op_code is None:
+            op_code = buffer.data_type.value
+
+        with (await self.write_lock):
+            if not self.ensure_open(force):
+                return
+
             written_since_drain = 0
             length = await buffer.read_into(data, chunksize)
             fin = buffer.at_eof()
@@ -159,33 +180,3 @@ class WebSocketWriter:
                     written_since_drain = 0
 
             await self.writer.drain()
-            writing_future.set_result(None)
-        except Exception as e:
-            if not writing_future.done():
-                writing_future.set_exception(e)
-
-    async def feed(self, reader, chunksize=1024, buffer_multiplier=12, force=False, drain_every=4096):
-        buffer = Buffer(chunksize * buffer_multiplier, loop=self.loop)
-
-        writing_future = self.loop.create_future()
-        writing_task = self.loop.create_task(self.feed_worker(buffer, writing_future, reader.data_type.value,
-                                                              chunksize=chunksize, drain_every=drain_every))
-
-        try:
-            with (await self.write_lock):
-                if not self.ensure_open(force):
-                    writing_future.set_result(None)
-                    if not writing_task.done():
-                        writing_task.cancel()
-
-                    return writing_future
-
-                while not reader.at_eof():
-                    await buffer.write(await reader.read(chunksize))
-        except Exception as e:
-            if not writing_task.done():
-                writing_task.cancel()
-                writing_future.set_exception(e)
-
-        buffer.feed_eof()
-        return writing_future

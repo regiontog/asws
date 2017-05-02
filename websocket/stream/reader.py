@@ -14,13 +14,14 @@ import logging
 import struct
 
 from websocket.reasons import Reasons
+from websocket.stream import buffer
 from websocket.stream.writer import WebSocketWriter
 from ..enums import DataType
 
 logger = logging.getLogger(__name__)
 
 
-class WebSocketReader(asyncio.StreamReader):
+class WebSocketReader(buffer.Buffer):
     """
     :ivar data_type: The type of data frame the client sent us, this is the default kind for :meth:`get`.
     :type data_type: :class:`~websocket.enums.DataType`
@@ -35,7 +36,7 @@ class WebSocketReader(asyncio.StreamReader):
     decoder_factory = codecs.getincrementaldecoder('utf8')
 
     def __init__(self, kind, client, loop):
-        super().__init__(loop=loop)
+        super().__init__(WebSocketReader.BUFFER_SIZE * WebSocketReader.QUE_MAXSIZE, loop)
         self.data_type = kind
         self.client = client
         self.decoder = WebSocketReader.decoder_factory()
@@ -102,9 +103,8 @@ class WebSocketReader(asyncio.StreamReader):
                     data[i] ^= mask[i % 4]
 
                 self.decoder.decode(data)
-                self.feed_data(data)
+                await self.write(data)
         except UnicodeDecodeError as e:
-            logger.debug("1")
             self.set_exception(e)
             raise
         except asyncio.CancelledError:
@@ -118,7 +118,7 @@ class WebSocketReader(asyncio.StreamReader):
                 for i in range(length):
                     data[i] ^= mask[i % 4]
 
-                self.feed_data(data)
+                await self.write(data)
         except asyncio.CancelledError:
             pass
 

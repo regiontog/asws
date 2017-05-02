@@ -5,8 +5,7 @@ cd asws/tests
 python3.6 fuzzingserver.py &
 
 python2.7 -mvirtualenv wstest
-. wstest/bin/activate (linux)
-./wstest/Scripts/activate.bat (windows)
+source wstest/bin/activate
 
 pip install autobahn
 wstest -m fuzzingclient

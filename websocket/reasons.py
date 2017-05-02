@@ -10,6 +10,7 @@ class Reason:
     INSTANCES = {}
 
     def __init__(self, code):
+        code = bytes(code)
         if code in Reason.INSTANCES:
             raise Exception("Duplicate entry.")
 
@@ -29,8 +30,9 @@ class Reason:
         
         :return: :class:`~websocket.reasons.Reason`
         """
-        if code in Reason.INSTANCES:
-            return Reason.INSTANCES[code]
+        for other_code in Reason.INSTANCES:
+            if code == other_code:
+                return Reason.INSTANCES[other_code]
         else:
             return Reason(code)
 

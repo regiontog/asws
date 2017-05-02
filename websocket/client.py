@@ -125,7 +125,9 @@ class Client:
         buffer = WebSocketReader(DataType.BINARY, self, self._loop)
         length = await buffer.feed(reader)
         buffer.done()
-        data = await buffer.readexactly(length)
+        logger.debug("1")
+        data = await buffer.read(length)
+        logger.debug("2")
         await close
         return data
 
@@ -212,7 +214,7 @@ class Client:
                 return
 
             logger.debug(f"Received {kind.name.lower()} from client {self.addr, self.port}.")
-            data = await buffer.readexactly(length)
+            data = await buffer.read(length)
             if kind is DataType.PING:
                 self._loop.create_task(self.on_ping(data, length))
             elif kind is DataType.PONG:
@@ -226,7 +228,7 @@ class Client:
 
         buffer = WebSocketReader(DataType.BINARY, self, self._loop)
         length = await buffer.feed_once(reader)
-        reason = await buffer.readexactly(length)
+        reason = await buffer.read(length)
 
         if not self.server_has_initiated_close:
             if length > WebSocketWriter.MAX_LEN_7:

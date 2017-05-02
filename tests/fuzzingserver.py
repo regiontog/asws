@@ -2,11 +2,12 @@ import asyncio
 import concurrent
 import logging
 
+import websocket
 from websocket.client import Client
 from websocket.server import WebSocketServer
 from websocket.stream.reader import WebSocketReader
 
-logging.basicConfig(level=logging.WARNING,
+logging.basicConfig(level=logging.DEBUG,
                     format=' %(levelname)s: %(name)s -- %(asctime)s.%(msecs)03d -- %(message)s',
                     datefmt='%H:%M:%S')
 
@@ -23,9 +24,8 @@ async def on_connection(client: Client):
 
     @client.message
     async def on_message(reader: WebSocketReader):
-        write = await client.writer.feed(reader)
         try:
-            await write
+            await client.writer.feed(reader)
         except concurrent.futures._base.TimeoutError:
             raise
         except Exception as e:

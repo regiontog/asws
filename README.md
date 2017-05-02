@@ -1,8 +1,13 @@
+# Features
+- Asynchronous with python asyncio
+- Multiple clients
+- Passes autobahn tests 1-10 (11-13 needs compression extension)
+- All control frames with status and reason
+
 # Installing
 ```bash
 python3.6 -m venv myproject
-. myproject/bin/activate (linux)
-./myproject/Scripts/activate.bat (windows)
+source myproject/bin/activate
 
 pip install asws3
 ```
@@ -34,11 +39,5 @@ loop.close()
 [Link](https://regiontog.github.io/asws-pages/)
 
 # TODO
-- websocket extentions
-- lazy properties
-- make fragment do chunksize
-- test with random data
-- websocket over https
-- use all cores
-- http path
-- http server
+- Websocket Extentions
+- Test with random data
