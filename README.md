@@ -36,7 +36,15 @@ loop.close()
 ```
 
 # Documentation
-[Link](https://regiontog.github.io/asws-pages/)
+- [Index](https://regiontog.github.io/asws-pages/)
+- [WebSocketServer](https://regiontog.github.io/asws-pages/modules/server.html)
+- [Client](https://regiontog.github.io/asws-pages/modules/client.html)
+- [Enums](https://regiontog.github.io/asws-pages/modules/enums.html)
+- [Writer](https://regiontog.github.io/asws-pages/modules/writer.html)
+- [Buffer](https://regiontog.github.io/asws-pages/modules/buffer.html)
+- [Reader](https://regiontog.github.io/asws-pages/modules/reader.html)
+- [Fragment Context](https://regiontog.github.io/asws-pages/modules/fragment.html)
+- [Reasons](https://regiontog.github.io/asws-pages/modules/reason.html)
 
 # TODO
 - Websocket Extentions
