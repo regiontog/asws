@@ -31,24 +31,25 @@ class FragmentContext:
         if self.push_task is not None and not self.push_task.done():
             await self.push_task
 
-        self.push_task = asyncio.ensure_future(self.write(fragment, fin), loop=self.loop)
+        self.push_task = asyncio.ensure_future(self._write(fragment, fin), loop=self.loop)
 
-    async def write(self, fragment, fin):
+    async def _write(self, fragment, fin):
         op_code = 0
         if self.first_write:
-            logger.debug(f"Start fragment write: fin = {fin}")
+            logger.debug(f"Start fragment _write: fin = {fin}")
             op_code = self.data_type.value
             self.first_write = False
         else:
-            logger.debug(f"Fragment continuation write: fin = {fin}")
+            logger.debug(f"Fragment continuation _write: fin = {fin}")
 
-        self.writer.writer.write((op_code | fin << 7).to_bytes(1, 'big'))
-        await self.writer.raw_send(fragment, self.data_type)
+        self.writer.write_frame((op_code | fin << 7).to_bytes(1, 'big'), fragment, len(fragment))
+        await self.writer.writer.drain()
 
     async def send(self, data, force=False):
-        """Que a message to be sent, it will be chopped into fragments and accumulated with other fragments
+        """Que a message to be sent.
         
-        :param data: The data you with to send, must be either :class:`str` or :class:`bytes`. 
+        :param data: The data you with to send, must be either :class:`str` or :class:`bytes`.
+        :type data: either str or bytes
         :param force: If true send message even if the connection is closing e.g. we got valid message after having previously been sent a close frame from the client or after having received invalid frame(s) 
         :type force: bool
         """
@@ -74,10 +75,12 @@ class FragmentContext:
 
     async def __aenter__(self):
         """Enter the context manager"""
+        await self.writer.write_lock
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Exit the context manager"""
+        self.writer.write_lock.release()
         if exc_type == self.Break:
             return True
 

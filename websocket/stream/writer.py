@@ -4,8 +4,10 @@ make use of it through :attr:`websocket.client.Client.writer`
 
 >>> client.writer.send('Hello World!')
 """
+import asyncio
 import logging
 
+from websocket.stream.buffer import Buffer
 from .fragment import FragmentContext
 from ..enums import DataType
 from ..reasons import Reasons
@@ -26,10 +28,13 @@ class WebSocketWriter:
     LENGTH_OVER_7 = LENGTH_OVER_7.to_bytes(1, 'big')
     LENGTH_OVER_16 = LENGTH_OVER_16.to_bytes(1, 'big')
 
+    HEADER_FIN_SET = 1 << 7
+
     def __init__(self, writer, loop):
         self.loop = loop
         self.writer = writer
         self.closed = False
+        self.write_lock = asyncio.Lock(loop=loop)
 
     def ensure_open(self, force):
         if self.closed and not force:
@@ -46,73 +51,41 @@ class WebSocketWriter:
         :param force: If true send message even if the connection is closing e.g. we got valid message after having previously been sent a close frame from the client or after having received invalid frame(s) 
         :type force: bool
         """
-        if not self.ensure_open(force):
-            return
+        with (await self.write_lock):
+            if not self.ensure_open(force):
+                return
 
-        if isinstance(data, str):
-            kind = DataType.TEXT
-        else:
-            kind = DataType.BINARY
+            if isinstance(data, str):
+                kind = DataType.TEXT
+            else:
+                kind = DataType.BINARY
 
-        logger.debug(f"Sending {kind.name.lower()} to client.")
-        self.writer.write(kind.header(8))
-        await self.raw_send(data, kind)
-
-    async def raw_send(self, data, kind):
-        if kind == DataType.TEXT:
-            data = data.encode()
-
-        length = len(data)
-
-        if length > WebSocketWriter.MAX_LEN_64:
-            raise Exception("Message too big, fragment it.")  # TODO: Auto fragment it
-        elif length > WebSocketWriter.MAX_LEN_16:
-            self.writer.write(WebSocketWriter.LENGTH_OVER_16)
-            self.writer.write(length.to_bytes(8, 'big'))
-        elif length > WebSocketWriter.MAX_LEN_7:
-            self.writer.write(WebSocketWriter.LENGTH_OVER_7)
-            self.writer.write(length.to_bytes(2, 'big'))
-        else:
-            self.writer.write(length.to_bytes(1, 'big'))
-
-        self.writer.write(data)
-        await self.writer.drain()
-
-    def fragment(self, chunksize=512):
-        """Create a async context manager that can send fragmented messages.
-        
-        :param chunksize: The size of each fragment to send.
-        :type chunksize: int
-        
-        :return: :class:`~websocket.stream.fragment.FragmentContext`
-        """
-        return FragmentContext(self, self.loop)
+            logger.debug(f"Sending {kind.name.lower()} to client.")
+            self.write_frame((kind.value | WebSocketWriter.HEADER_FIN_SET).to_bytes(1, 'big'), data, len(data))
+            await self.writer.drain()
 
     async def close(self, close_code, reason):
-        logger.debug("Sending close to client.")
+        with (await self.write_lock):
+            logger.debug("Sending close to client.")
 
-        if close_code == Reasons.NO_STATUS.value:
-            self.writer.write(b'\x88')
-            self.writer.write((0).to_bytes(1, 'big'))
-            await self.writer.drain()
-        else:
-            data = reason.encode()
-            length = 2 + len(data)
+            if close_code == Reasons.NO_STATUS.value:
+                self.write_frame(b'\x88', [], 0)
+                await self.writer.drain()
+            else:
+                data = reason.encode()
+                length = 2 + len(data)
 
-            if length > WebSocketWriter.MAX_LEN_7:
-                raise Exception(f"Control frames(close) may not be over {WebSocketWriter.MAX_LEN_7} bytes.")
+                if length > WebSocketWriter.MAX_LEN_7:
+                    raise Exception(f"Control frames(close) may not be over {WebSocketWriter.MAX_LEN_7} bytes.")
 
-            self.writer.write(b'\x88')
-            self.writer.write(length.to_bytes(1, 'big'))
-            self.writer.write(close_code.code)
-            self.writer.write(data)
-            await self.writer.drain()
+                self.write_frame(b'\x88', b''.join([close_code.code, data]), length)
+                await self.writer.drain()
 
-        self.closed = True
+            self.closed = True
 
     async def ping(self, payload=b''):
         """Send a ping to the client.
-        
+
         :param payload: The payload to send with the ping.
         :type payload: bytes
         """
@@ -122,9 +95,7 @@ class WebSocketWriter:
         if length > WebSocketWriter.MAX_LEN_7:
             raise Exception(f"Control frames(ping) may not be over {WebSocketWriter.MAX_LEN_7} bytes.")
 
-        self.writer.write(b'\x89')
-        self.writer.write(length.to_bytes(1, 'big'))
-        self.writer.write(payload)
+        self.write_frame(b'\x89', payload, length)
         await self.writer.drain()
 
     async def pong(self, length, payload):
@@ -136,7 +107,85 @@ class WebSocketWriter:
         :type length: int
         """
         logger.debug("Sending pong to client.")
-        self.writer.write(b'\x8A')
-        self.writer.write(length.to_bytes(1, 'big'))
-        self.writer.write(payload)
+        self.write_frame(b'\x8A', payload, length)
         await self.writer.drain()
+
+    def write_frame(self, header, data, length):
+        frame = bytearray(header)
+
+        if length > WebSocketWriter.MAX_LEN_64:
+            raise Exception("Message too big, fragment it.")
+        elif length > WebSocketWriter.MAX_LEN_16:
+            frame.extend(WebSocketWriter.LENGTH_OVER_16)
+            frame.extend(length.to_bytes(8, 'big'))
+        elif length > WebSocketWriter.MAX_LEN_7:
+            frame.extend(WebSocketWriter.LENGTH_OVER_7)
+            frame.extend(length.to_bytes(2, 'big'))
+        else:
+            frame.extend(length.to_bytes(1, 'big'))
+
+        frame.extend(data)
+        self.writer.write(frame)
+
+    def fragment(self):
+        """Create a async context manager that can send fragmented messages.
+        
+        :param chunksize: The size of each fragment to send.
+        :type chunksize: int
+        
+        :return: :class:`~websocket.stream.fragment.FragmentContext`
+        """
+        return FragmentContext(self, self.loop)
+
+    async def feed_worker(self, buffer, writing_future, op_code, chunksize=1024, drain_every=4096):
+        data = bytearray(chunksize)
+
+        try:
+            written_since_drain = 0
+            length = await buffer.read_into(data, chunksize)
+            fin = buffer.at_eof()
+
+            self.write_frame((op_code | fin << 7).to_bytes(1, 'big'), data[:length], length)
+            written_since_drain += length
+
+            while not fin:
+                length = await buffer.read_into(data, chunksize)
+                fin = buffer.at_eof()
+
+                self.write_frame((fin << 7).to_bytes(1, 'big'), data[:length], length)
+                written_since_drain += length
+                if written_since_drain > drain_every:
+                    await self.writer.drain()
+                    written_since_drain = 0
+
+            await self.writer.drain()
+            writing_future.set_result(None)
+        except Exception as e:
+            if not writing_future.done():
+                writing_future.set_exception(e)
+
+    async def feed(self, reader, chunksize=1024, buffer_multiplier=12, force=False, drain_every=4096):
+        buffer = Buffer(chunksize * buffer_multiplier, loop=self.loop)
+
+        writing_future = self.loop.create_future()
+        writing_task = self.loop.create_task(self.feed_worker(buffer, writing_future, reader.data_type.value,
+                                                              chunksize=chunksize, drain_every=drain_every))
+
+        try:
+            with (await self.write_lock):
+                if not self.ensure_open(force):
+                    writing_future.set_result(None)
+                    if not writing_task.done():
+                        writing_task.cancel()
+
+                    return writing_future
+
+                while not reader.at_eof():
+                    await buffer.write(await reader.read(chunksize))
+        except Exception as e:
+            if not writing_task.done():
+                writing_task.cancel()
+                writing_future.set_exception(e)
+
+        buffer.feed_eof()
+        return writing_future

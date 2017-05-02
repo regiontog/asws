@@ -23,9 +23,9 @@ async def on_connection(client: Client):
 
     @client.message
     async def on_message(reader: WebSocketReader):
+        write = await client.writer.feed(reader)
         try:
-            data = await socket.wait(reader.get(), 20)
-            await socket.wait(client.writer.send(data), 20)
+            await write
         except concurrent.futures._base.TimeoutError:
             raise
         except Exception as e:

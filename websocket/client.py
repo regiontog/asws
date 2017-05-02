@@ -1,6 +1,6 @@
 """
 You should not make an instance of the Client class yourself, rather you should listen for new connections with 
-:meth:`~websocket.server.WebsocketServer.connection`
+:meth:`~websocket.server.WebSocketServer.connection`
 
 >>> @socket.connection
 >>> async def on_connection(client: Client):
@@ -122,8 +122,9 @@ class Client:
 
     async def close_with_read(self, reader, code, reason):
         close = asyncio.ensure_future(self.close(code, reason), loop=self._loop)
-        buffer = WebSocketReader(DataType.BINARY)
+        buffer = WebSocketReader(DataType.BINARY, self, self._loop)
         length = await buffer.feed(reader)
+        buffer.done()
         data = await buffer.readexactly(length)
         await close
         return data
@@ -137,19 +138,13 @@ class Client:
             # TODO: Kill in 5 secs if client dont respond
 
     async def _read_message(self, reader, fin):
-        try:
-            await self._reader.feed(reader)
+        await self._reader.feed(reader)
 
-            if fin:
-                self.continuation = DataType.NONE
-                self._reader.decoder.decode(b'', True)
-                self._reader.feed_eof()
-            else:
-                self.continuation = self._reader.data_type
-        except UnicodeDecodeError as e:
-            self._reader.set_exception(e)
-            await self.close(Reasons.INCONSISTENT_DATA.value,
-                             f"{e.object[e.start:e.end]} at {e.start}-{e.end}: {e.reason}"[:WebSocketWriter.MAX_LEN_7])
+        if fin:
+            self.continuation = DataType.NONE
+            self._reader.done()
+        else:
+            self.continuation = self._reader.data_type
 
     @staticmethod
     def handle_data(kind):
@@ -157,14 +152,15 @@ class Client:
             if self.continuation != DataType.NONE:
                 self._reader.set_exception(Exception(
                     f"Received unexpected {kind.name.lower()} data frame from client {self.addr, self.port}, "
-                    f"expected continuation."))
+                    "expected continuation."))
 
+                self._reader.done()
                 await self.close_with_read(reader, Reasons.PROTOCOL_ERROR.value, "expected continuation frame")
                 return
 
             logger.debug(f"Received {kind.name.lower()} data frame from client {self.addr, self.port}.")
             self.type = kind
-            self._reader = WebSocketReader(kind)
+            self._reader = WebSocketReader(kind, self, self._loop)
             self._loop.create_task(self.on_message(self._reader))
 
             return await self._read_message(reader, fin)
@@ -186,12 +182,13 @@ class Client:
     def ensure_clean_close(self):
         if self.continuation != DataType.NONE:
             self._reader.set_exception(Exception("Closing connection in middle of message."))
+            self._reader.done()
 
     @staticmethod
     def handle_ping_or_pong(kind):
         async def handler(self, reader, fin):
-            buffer = WebSocketReader(DataType.BINARY)
-            feed = asyncio.ensure_future(buffer.feed(reader), loop=self._loop)
+            buffer = WebSocketReader(DataType.BINARY, self, self._loop)
+            feed = asyncio.ensure_future(buffer.feed_once(reader), loop=self._loop)
 
             if not fin or self.server_has_initiated_close:
                 if not fin:
@@ -221,13 +218,14 @@ class Client:
             elif kind is DataType.PONG:
                 self._loop.create_task(self.on_pong(data, length))
 
+            buffer.done()
         return handler
 
     async def handle_close(self, reader, fin):
         logger.debug(f"Received close from client {self.addr, self.port}.")
 
-        buffer = WebSocketReader(DataType.BINARY)
-        length = await buffer.feed(reader)
+        buffer = WebSocketReader(DataType.BINARY, self, self._loop)
+        length = await buffer.feed_once(reader)
         reason = await buffer.readexactly(length)
 
         if not self.server_has_initiated_close:

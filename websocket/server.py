@@ -1,7 +1,8 @@
-"""Usage:
+"""Usage
+
 >>> loop = asyncio.get_event_loop()
 >>> socket = WebSocketServer("localhost", 3001, loop=loop)
->>>
+...
 >>> @socket.connection
 >>> async def on_connection(client: Client):
 ...     logger.info(f'Connection from {client.addr, client.port}')
@@ -10,11 +11,11 @@
 ...     @client.message
 ...     async def on_message(reader: WebSocketReader):
 ...         await client.writer.send(await reader.get())
->>>
+...
 >>> with socket as server:
-...     logger.info(f'Serving on {server.sockets[0].getsockname()}')
+...     print(f'Serving on {server.sockets[0].getsockname()}')
 ...     loop.run_forever()
->>>
+...
 >>> loop.close()
 """
 
@@ -37,7 +38,7 @@ class WebSocketServer:
     :type addr: str
     :ivar port: The server port.
     :type port: int
-    :ivar certs: SSL certifications
+    :ivar certs: SSL certificates
     :type certs: (certfile, keyfile)
     :ivar clients: All of the connected clients.
     :type clients: {(str, int): Client}
@@ -110,7 +111,7 @@ class WebSocketServer:
             for future in pending:
                 future.cancel()
 
-    async def disconnect_client(self, client, port=None, code=Reasons.NORMAL.value.code, reason=''):
+    async def disconnect_client(self, client, code=Reasons.NORMAL.value.code, reason=''):
         """This method is the only clean way to close a connection with a client.
         
         >>> @socket.connection
@@ -118,19 +119,12 @@ class WebSocketServer:
         ...     print("Client connected, disconnecting it...")
         ...     socket.disconnect_client(client)
 
-        :param client: Depends on port parameter.
-        :param port: If port is None try to disconnect client, else interpret client as the client address
-        :param code: The code to close the connection with, make sure it is valid. 99% of the time it should be :attr:`websocket.reasons.Reasons.NORMAL.value.code`
+        :param client: The client to disconnect from the server.
+        :param code: The code to close the connection with, make sure it is valid. Default is :attr:`websocket.reasons.Reasons.NORMAL.value.code`
         :type code: bytes
         :param reason: The reason for closing the connection, may be ''. Should not be longer than 123 characters.
         :type reason: str
         """
-        if port is not None:
-            try:
-                client = self.clients[client, port]
-            except KeyError:
-                return  # Client does not exist, nothing to to
-
         await client.close(code, reason)
         del self.clients[client.addr, client.port]
 
@@ -190,14 +184,14 @@ class WebSocketServer:
 
     async def handle_handshake(self, reader, writer):
         try:
-            request_line = await self.wait(reader.readuntil(WebsocketServer.NEWLINE), 1)
+            request_line = await self.wait(reader.readuntil(WebSocketServer.NEWLINE), 1)
 
             request = handshake.Request(request_line.decode())
-            header = await self.wait(reader.readuntil(WebsocketServer.NEWLINE), 1)
+            header = await self.wait(reader.readuntil(WebSocketServer.NEWLINE), 1)
 
-            while header != WebsocketServer.NEWLINE:
+            while header != WebSocketServer.NEWLINE:
                 request.header(header.decode())
-                header = await self.wait(reader.readuntil(WebsocketServer.NEWLINE), 1)
+                header = await self.wait(reader.readuntil(WebSocketServer.NEWLINE), 1)
 
             response = request.validate_websocket_request()
             writer.write(response)

@@ -13,6 +13,8 @@ import codecs
 import logging
 import struct
 
+from websocket.reasons import Reasons
+from websocket.stream.writer import WebSocketWriter
 from ..enums import DataType
 
 logger = logging.getLogger(__name__)
@@ -23,7 +25,8 @@ class WebSocketReader(asyncio.StreamReader):
     :ivar data_type: The type of data frame the client sent us, this is the default kind for :meth:`get`.
     :type data_type: :class:`~websocket.enums.DataType`
     """
-    BUFFER_SIZE = 128
+    BUFFER_SIZE = 1024
+    QUE_MAXSIZE = 12
     MASK_BIT = 1 << 7
     FIN_BIT = 1 << 7
     RSV_BITS = 0b111 << 4
@@ -31,10 +34,19 @@ class WebSocketReader(asyncio.StreamReader):
 
     decoder_factory = codecs.getincrementaldecoder('utf8')
 
-    def __init__(self, kind):
-        super().__init__()
+    def __init__(self, kind, client, loop):
+        super().__init__(loop=loop)
         self.data_type = kind
+        self.client = client
         self.decoder = WebSocketReader.decoder_factory()
+
+        self.que = asyncio.Queue(WebSocketReader.QUE_MAXSIZE)
+        self.reading = True
+
+        if self.data_type is DataType.TEXT:
+            self.processor = asyncio.ensure_future(self.process_text(), loop=self._loop)
+        else:
+            self.processor = asyncio.ensure_future(self.process_binary(), loop=self._loop)
 
     async def get(self, kind=None):
         """Reads all of the bytes from the stream. 
@@ -53,31 +65,76 @@ class WebSocketReader(asyncio.StreamReader):
         elif kind == DataType.BINARY:
             return data
 
-    async def feed(self, reader):
-        mask_flag, length = await WebSocketReader._parse_length_and_mask_flag(reader)
-        return await self._feed(reader, length, mask_flag)
+    def done(self):
+        asyncio.ensure_future(self.adone(), loop=self._loop)
 
-    async def _feed(self, reader, length, mask_flag):
-        if self.data_type is DataType.TEXT:
-            async for data in self._parse_raw(reader, mask_flag, length):
+    async def adone(self):
+        self.reading = False
+
+        try:
+            if self.processor.done():
+                exc = self.processor.exception()
+                if exc:
+                    raise exc
+
+            if self.que.empty():
+                self.processor.cancel()
+                await self.processor
+            else:
+                await self.processor
+
+            if self.data_type is DataType.TEXT:
+                self.decoder.decode(b'', True)
+
+            self.feed_eof()
+
+        except UnicodeDecodeError as e:
+            self.set_exception(e)
+            await self.client.close(Reasons.INCONSISTENT_DATA.value,
+                                    f"{e.object[e.start:e.end]} at {e.start}-{e.end}: {e.reason}"[:WebSocketWriter.MAX_LEN_7])
+
+    async def process_text(self):
+        try:
+            while not self.que.empty() or self.reading:
+                data, length, mask = await self.que.get()
+                data = bytearray(data)
+                for i in range(length):
+                    data[i] ^= mask[i % 4]
+
                 self.decoder.decode(data)
                 self.feed_data(data)
-        else:
-            async for data in self._parse_raw(reader, mask_flag, length):
-                self.feed_data(data)
+        except UnicodeDecodeError as e:
+            logger.debug("1")
+            self.set_exception(e)
+            raise
+        except asyncio.CancelledError:
+            pass
 
+    async def process_binary(self):
+        try:
+            while not self.que.empty() or self.reading:
+                data, length, mask = await self.que.get()
+                data = bytearray(data)
+                for i in range(length):
+                    data[i] ^= mask[i % 4]
+
+                self.feed_data(data)
+        except asyncio.CancelledError:
+            pass
+
+    async def feed_once(self, reader):
+        length = await self.feed(reader)
+        self.done()
         return length
 
-    @staticmethod
-    async def _parse_length_and_mask_flag(reader):
+    async def feed(self, reader):
         data = await reader.readexactly(1)
-        return (data[0] & WebSocketReader.MASK_BIT) != 0, data[0] & ~WebSocketReader.MASK_BIT
+        mask_flag = data[0] & WebSocketReader.MASK_BIT
+        length = data[0] & ~WebSocketReader.MASK_BIT
 
-    async def _parse_raw(self, reader, mask_flag, length):
         # "The form '!' is available for those poor souls who claim they can’t remember whether network byte order is
         # big-endian or little-endian."
         # - <https://docs.python.org/3/library/struct.html>
-
         if length == 126:
             data = await reader.readexactly(2)
             length, = struct.unpack('!H', data)
@@ -85,48 +142,26 @@ class WebSocketReader(asyncio.StreamReader):
             data = await reader.readexactly(8)
             length, = struct.unpack('!Q', data)
 
+        left_to_read = length
+
         if not mask_flag:
             # TODO: Reject frame per <https://tools.ietf.org/html/rfc6455#section-5.1>
             logger.warning("Received message from client without mask.")
+            await reader.readexactly(left_to_read)
+            raise Exception("Received message from client without mask.")  # TODO: HANDLE
 
-            while length > WebSocketReader.BUFFER_SIZE:
-                yield await reader.readexactly(WebSocketReader.BUFFER_SIZE)
-                length -= WebSocketReader.BUFFER_SIZE
+        mask = await reader.readexactly(4)
 
-            yield await reader.readexactly(length)
-        else:
-            mask = await reader.readexactly(4)
-            buffer = bytearray(WebSocketReader.BUFFER_SIZE)
+        first_read_size = min(WebSocketReader.BUFFER_SIZE, left_to_read)
+        await self.que.put((await reader.readexactly(first_read_size), first_read_size, mask))
+        left_to_read -= first_read_size
 
-            to_read = min(WebSocketReader.BUFFER_SIZE, length)
-            buffer[:] = await reader.readexactly(to_read)
-            length -= to_read
-            task = asyncio.ensure_future(WebSocketReader._unmask(mask, buffer[:], to_read), loop=self._loop)
+        while left_to_read > WebSocketReader.BUFFER_SIZE:
+            await self.que.put(
+                (await reader.readexactly(WebSocketReader.BUFFER_SIZE), WebSocketReader.BUFFER_SIZE, mask))
+            left_to_read -= WebSocketReader.BUFFER_SIZE
 
-            while length > WebSocketReader.BUFFER_SIZE:
-                buffer[:] = await reader.readexactly(WebSocketReader.BUFFER_SIZE)
-                length -= WebSocketReader.BUFFER_SIZE
-                yield await task
+        if left_to_read > 0:
+            await self.que.put((await reader.readexactly(left_to_read), left_to_read, mask))
 
-                task = asyncio.ensure_future(WebSocketReader._unmask(mask, buffer[:], WebSocketReader.BUFFER_SIZE),
-                                             loop=self._loop)
-
-            if length > 0:
-                buffer[:] = await reader.readexactly(length)
-                yield await task
-                await WebSocketReader._unmask(mask, buffer, length)
-                yield buffer[:length]
-            else:
-                yield await task
-
-    @staticmethod
-    async def _unmask(mask, buffer, num, sleep_opt=4):
-        # sleep_at = num/sleep_opt
-        for i in range(num):
-            buffer[i] ^= mask[i % 4]
-
-            # if i % sleep_at == 0:
-            #     # Allow other corutines to do work, should benchmark to see if this actually helps.
-            #     await asyncio.sleep(0, loop=self._loop)
-
-        return buffer
+        return length
