@@ -53,7 +53,7 @@ We can do this with the :meth:`~asyncio.AbstractEventLoop.run_forever` method.
 The client object
 ^^^^^^^^^^^^^^^^^
 If we look back at :meth:`~websocket.server.WebSocketServer.connection`
-`decorator <https://realpython.com/blog/python/primer-on-python-decorators/>`_., we see that the callback accepts the :class:`~asyncio.Server` class.
+`decorator <https://realpython.com/blog/python/primer-on-python-decorators/>`_, we see that the callback accepts the :class:`~asyncio.Server` class.
 This class has 3 interesting attributes, :attr:`~websocket.client.Client.addr`, :attr:`~websocket.client.Client.port`, and :attr:`~websocket.client.Client.writer`.
 The first two answer to the address and port of the remote socket. We can use these to identify each client.
 
@@ -65,7 +65,7 @@ The first two answer to the address and port of the remote socket. We can use th
 
 The :attr:`~websocket.client.Client.writer` is used to send messages to the client and we'll look closer at it soon.
 
-We can access all connected clients through :attr:`~websocket.server.WebSocketServer.clients` this :class:`dict` the key to each client is the tuple `(client.addr, client.port)`.
+We can access all connected clients through :attr:`~websocket.server.WebSocketServer.clients`. This :class:`dict` the key to each client is the tuple `(client.addr, client.port)`.
 In particular before the on_connection callback is finished it contains all clients but the newly connected one.
 ::
 

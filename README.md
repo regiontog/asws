@@ -3,7 +3,7 @@
 - Multiple clients
 - [Passes autobahn tests 1-10 (11-13 needs compression extension)](https://regiontog.github.io/asws-pages/_static/report/autobahn/index)
 - All control frames with status and reason
-- Heartbeatgit
+- Heartbeat
 
 # Installing
 ```bash
