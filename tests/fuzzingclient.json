@@ -1,6 +1,6 @@
 
 {
-   "outdir": "./reports/servers",
+   "outdir": "../docs/source/.static/report/autobahn",
    "servers": [
       {
          "url": "ws://127.0.0.1:3001"

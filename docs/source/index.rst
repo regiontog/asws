@@ -7,16 +7,6 @@ Welcome to asws's documentation!
 ================================
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
    :glob:
 
    modules/*
-
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`

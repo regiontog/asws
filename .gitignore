@@ -98,7 +98,7 @@ ENV/
 /site
 
 /certs
-/tests/reports
+/docs/source/.static/report
 /tests/node/node_modules
 /venv
 /.idea

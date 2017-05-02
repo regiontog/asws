@@ -66,7 +66,7 @@ class Client:
         This callback is called when the server receives an valid data frame, 
         if an exception occurs after the first valid frame e.g. if an text frame 
         contains invalid utf-8, or if it's an invalid fragmented message, then we 
-        send the exception to the reader with :meth:`~asyncio.StreamReader.set_exception`.
+        send the exception to the reader with :meth:`~websocket.stream.buffer.Buffer.set_exception`.
         
         >>> @client.message
         >>> async def on_message(reader: WebSocketReader):
