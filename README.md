@@ -41,7 +41,7 @@ loop.close()
 ```
 
 # Documentation
-- [Index](https://regiontog.github.io/asws-pages/)
+- [Getting Started](https://regiontog.github.io/asws-pages/)
 - [WebSocketServer](https://regiontog.github.io/asws-pages/modules/server.html)
 - [Client](https://regiontog.github.io/asws-pages/modules/client.html)
 - [Enums](https://regiontog.github.io/asws-pages/modules/enums.html)

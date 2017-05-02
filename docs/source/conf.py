@@ -106,6 +106,8 @@ html_static_path = ['.static']
 # Output file base name for HTML help builder.
 htmlhelp_basename = 'aswsdoc'
 
+html_sidebars = { '**': ['globaltoc.html', 'relations.html', 'sourcelink.html', 'searchbox.html'], }
+
 
 # -- Options for LaTeX output ---------------------------------------------
 

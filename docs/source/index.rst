@@ -3,10 +3,13 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to asws's documentation!
-================================
+ASWS
+====
 
 .. toctree::
-   :glob:
+    :glob:
 
-   modules/*
+    intro
+    modules/*
+
+.. include:: intro.rst
