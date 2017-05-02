@@ -1,8 +1,11 @@
 import logging
-import struct
 from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+
+class DuplicateReasonException(Exception):
+    pass
 
 
 class Reason:
@@ -12,7 +15,7 @@ class Reason:
     def __init__(self, code):
         code = bytes(code)
         if code in Reason.INSTANCES:
-            raise Exception("Duplicate entry.")
+            raise DuplicateReasonException("Duplicate entry.")
 
         Reason.INSTANCES[code] = self
         self.code = code

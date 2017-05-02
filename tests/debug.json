@@ -1,12 +1,12 @@
 
 {
-   "outdir": "./reports/servers",
+   "outdir": "../docs/source/.static/report/autobahn",
    "servers": [
       {
          "url": "ws://127.0.0.1:3001"
       }
    ],
-   "cases": ["9.*"],
-   "exclude-cases": [],
+   "cases": ["*"],
+   "exclude-cases": ["9.*"],
    "exclude-agent-cases": {}
 }

@@ -80,57 +80,46 @@ class Buffer:
 
         return result
 
-    async def read_into_exactly(self, buffer, n):
+    async def read_into_exactly(self, buffer, n, offset=0):
         """Read data from the buffer into a bytearray. Reads n bytes or throws an exception if reading eof.
+        
+        n must not exceed the buffer limit, or else it will block forever.
 
         :param buffer: The bytearray to write the data into.
         :param n: The amount of data to read.
         """
-        while self.read_available < n and not self.eof and not self.exc:
-            await self.write_signal.wait()
-
-        if self.exc:
-            raise self.exc
+        await self._wait_for_read(n)
 
         if self.eof:
             if self.read_available < n:
                 raise IncompleteReadError(f"{self.read_available} bytes available of {n} expected bytes")
 
-        if n == 0:
-            return n
-
-        tail = self.read_head + n
-        if tail > self.limit:
-            remaining = self.limit - self.read_head
-            buffer[:remaining] = self.backing[self.read_head:self.limit]
-            buffer[remaining:n] = self.backing[:n - remaining]
-            self.read_head = n - remaining
-        else:
-            buffer[:n] = self.backing[self.read_head:tail]
-            self.read_head = tail
-
-        self.read_available -= n
-        self.write_available += n
-
-        self.read_signal.set()
-        self.read_signal.clear()
+        await self._read_into(buffer, n, offset=offset)
 
     async def read_into(self, buffer, n, offset=0):
         """Read data from the buffer into a bytearray. Reads until eof or n bytes.
+        
+        n must not exceed the buffer limit, or else it will block forever.
 
         :param buffer: The bytearray to write the data into.
         :param n: The amount of data to read.
         :param offset: The index into buffer to write to.
         """
+        await self._wait_for_read(n)
+
+        if self.eof:
+            n = min(self.read_available, n)
+
+        return await self._read_into(buffer, n, offset=offset)
+
+    async def _wait_for_read(self, n):
         while self.read_available < n and not self.eof and not self.exc:
             await self.write_signal.wait()
 
         if self.exc:
             raise self.exc
 
-        if self.eof:
-            n = min(self.read_available, n)
-
+    async def _read_into(self, buffer, n, offset=0):
         if n == 0:
             return n
 

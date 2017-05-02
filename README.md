@@ -3,6 +3,7 @@
 - Multiple clients
 - Passes autobahn tests 1-10 (11-13 needs compression extension)
 - All control frames with status and reason
+- Heartbeat
 
 # Installing
 ```bash
@@ -21,8 +22,8 @@ socket = WebSocketServer("localhost", 3001, loop=loop)
 
 @socket.connection
 async def on_connection(client: Client):
-    logger.info(f'Connection from {client.addr, client.port}')
-    logger.info(f'All clients: {socket.clients}')
+    print(f'Connection from {client.addr, client.port}')
+    print(f'All clients: {socket.clients}')
 
     @client.message
     async def on_message(reader: WebSocketReader):

@@ -5,14 +5,14 @@ import logging
 import os
 import sys
 
-root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, root)
+# root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# sys.path.insert(0, root)
 
 from websocket.client import Client
 from websocket.server import WebSocketServer
 from websocket.stream.reader import WebSocketReader
 
-logging.basicConfig(level=logging.WARNING,
+logging.basicConfig(level=logging.DEBUG,
                     format=' %(levelname)s: %(name)s -- %(asctime)s.%(msecs)03d -- %(message)s',
                     datefmt='%H:%M:%S')
 

@@ -10,12 +10,33 @@ You should not make an instance of the Client class yourself, rather you should 
 import asyncio
 import logging
 
+import time
+
 from .enums import DataType, State
 from .reasons import Reasons, Reason
 from .stream.reader import WebSocketReader
 from .stream.writer import WebSocketWriter
 
 logger = logging.getLogger(__name__)
+
+
+class NoCallbackException(Exception):
+    pass
+
+
+class UnexpectedFrameException(Exception):
+    def __init__(self, client, recv, expect):
+        super().__init__(f"Received unexpected {recv.name.lower()} frame from client {client.addr, client.port}, "
+                         f"expected {expect.name.lower()}.")
+
+        self.recieved = recv
+        self.expected = expect
+        self.client = client
+
+
+class ConnectionClosed(Exception):
+    def __init__(self):
+        super().__init__("Closing connection in middle of message.")
 
 
 class Client:
@@ -29,6 +50,7 @@ class Client:
     """
 
     def __init__(self, state, addr, port, writer, loop):
+        self.last_message = time.time()
         self.state = state
         self.addr = addr
         self.port = port
@@ -42,7 +64,7 @@ class Client:
 
         @self.message
         async def on_message(reader):
-            raise Exception("No message callback defined.")
+            raise NoCallbackException("No message callback defined.")
 
         @self.ping
         async def on_ping(payload, length):
@@ -152,9 +174,7 @@ class Client:
     def handle_data(kind):
         async def handler(self, reader, fin):
             if self.continuation != DataType.NONE:
-                self._reader.set_exception(Exception(
-                    f"Received unexpected {kind.name.lower()} data frame from client {self.addr, self.port}, "
-                    "expected continuation."))
+                self._reader.set_exception(UnexpectedFrameException(self, kind, DataType.CONTINUATION))
 
                 self._reader.done()
                 await self.close_with_read(reader, Reasons.PROTOCOL_ERROR.value, "expected continuation frame")
@@ -183,7 +203,7 @@ class Client:
 
     def ensure_clean_close(self):
         if self.continuation != DataType.NONE:
-            self._reader.set_exception(Exception("Closing connection in middle of message."))
+            self._reader.set_exception(ConnectionClosed())
             self._reader.done()
 
     @staticmethod
@@ -251,6 +271,8 @@ class Client:
 
         await self.close_with_read(reader, Reasons.PROTOCOL_ERROR.value, "invalid opcode")
 
+    def tick(self):
+        self.last_message = time.time()
 
 HANDLERS = {opcode: Client.handle_undefined for opcode in range(0, 1 << 4)}
 HANDLERS.update({

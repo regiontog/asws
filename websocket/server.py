@@ -23,6 +23,8 @@ import asyncio
 import logging
 import ssl
 
+import time
+
 from .client import Client, HANDLERS
 from .enums import State
 from .http import handshake
@@ -38,6 +40,8 @@ class WebSocketServer:
     :type addr: str
     :ivar port: The server port.
     :type port: int
+    :ivar timeout: The timeout in seconds for clients, if they don't respond to pings. Set to 0 to disable heartbeat.
+    :type timeout: float
     :ivar certs: SSL certificates
     :type certs: (certfile, keyfile)
     :ivar clients: All of the connected clients.
@@ -47,7 +51,7 @@ class WebSocketServer:
     """
     NEWLINE = b'\r\n'
 
-    def __init__(self, addr, port, certs=None, loop=None):
+    def __init__(self, addr, port, certs=None, loop=None, timeout=120):
         if loop is None:
             self.loop = asyncio.get_event_loop()
         else:
@@ -58,7 +62,30 @@ class WebSocketServer:
         self.port = port
         self.server = None
         self.certs = certs
+        self.client_timeout = timeout
         self.clients = {}
+        self.keepalive_task = None
+
+    async def keepalive(self, timeout):
+        try:
+            half = int(timeout / 2)
+            while True:
+                await asyncio.sleep(half, loop=self.loop)
+                logger.info("Sending heartbeats")
+                cur_time = time.time()
+
+                for client in self.clients.values():
+                    diff = cur_time - client.last_message
+                    if diff > timeout:
+                        logger.warning(f"Cleaning up non-responsive client {client.addr, client.port}")
+                        self.disconnect_client(client, code=Reasons.POLICY_VIOLATION.value.code,
+                                               reason='Client did not respond to heartbeat.')
+
+                    elif diff > 60:
+                        client.writer.ping('heartbeat')
+
+        except asyncio.CancelledError:
+            pass
 
     def __enter__(self):
         """Start the server when entering the context manager."""
@@ -70,10 +97,16 @@ class WebSocketServer:
 
         coro = asyncio.start_server(self.socket_connect, self.addr, self.port, loop=self.loop, ssl=context)
         self.server = self.loop.run_until_complete(coro)
+        if self.client_timeout > 0:
+            self.keepalive_task = self.loop.create_task(self.keepalive(self.client_timeout))
+
         return self.server
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Stop server when exiting context manager"""
+        if self.keepalive_task is not None:
+            self.keepalive_task.cancel()
+
         self.loop.run_until_complete(self.disconnect_all())
         self.server.close()
         self.loop.run_until_complete(self.server.wait_closed())
@@ -151,6 +184,7 @@ class WebSocketServer:
                     client.read_task = self.loop.create_task(reader.readexactly(1))
                     try:
                         data = (await client.read_task)[0]
+                        client.tick()
                         if data & WebSocketReader.RSV_BITS > 0:
                             logger.warning("No extension defining RSV meaning has been negotiated")
                             client.ensure_clean_close()
