@@ -81,7 +81,7 @@ class WebSocketServer:
                         self.disconnect_client(client, code=Reasons.POLICY_VIOLATION.value.code,
                                                reason='Client did not respond to heartbeat.')
 
-                    elif diff > 60:
+                    elif diff > half:
                         client.writer.ping('heartbeat')
 
         except asyncio.CancelledError:
