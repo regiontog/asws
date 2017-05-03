@@ -70,9 +70,9 @@ In particular before the on_connection callback is finished it contains all clie
 ::
 
     @socket.connection
-        async def on_connection(client: Client):
-            for other in socket.clients.values():
-                print(f"Client {other.addr, other.port} was connected before {client.addr, client.port}")
+    async def on_connection(client: Client):
+        for other in socket.clients.values():
+            print(f"Client {other.addr, other.port} was connected before {client.addr, client.port}")
 
 
 Registering the on_message callback
@@ -83,10 +83,10 @@ The callback parameter is a :class:`~websocket.stream.reader.WebSocketReader` cl
 ::
 
     @socket.connection
-        async def on_connection(client: Client):
-            @client.message
-                async def on_message(reader: WebSocketReader):
-                    print(f"The client {client.addr, client.port} sent an message.")
+    async def on_connection(client: Client):
+        @client.message
+        async def on_message(reader: WebSocketReader):
+            print(f"The client {client.addr, client.port} sent an message.")
 
 Reading from the stream
 ^^^^^^^^^^^^^^^^^^^^^^^
@@ -95,9 +95,9 @@ if you want to read bytes. Otherwise the method :meth:`~websocket.stream.reader.
 ::
 
     @client.message
-        async def on_message(reader: WebSocketReader):
-            msg = await reader.get()
-            print(f"The client {client.addr, client.port} sent the message {msg}.")
+    async def on_message(reader: WebSocketReader):
+        msg = await reader.get()
+        print(f"The client {client.addr, client.port} sent the message {msg}.")
 
 Sending messages to the client
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -111,19 +111,19 @@ Just like we could receive messages with :meth:`~websocket.stream.reader.WebSock
 ::
 
     @socket.connection
-        async def on_connection(client: Client):
-            for other in socket.clients.values():
-                await other.writer.send('You are a client connected to my server.')
+    async def on_connection(client: Client):
+        for other in socket.clients.values():
+            await other.writer.send('You are a client connected to my server.')
 
 ::
 
     @socket.connection
-        async def on_connection(client: Client):
-            @client.message
-                async def on_message(reader: WebSocketReader):
-                msg = await reader.get()
-                await client.writer.send('You just send me the following message.')
-                await client.writer.send(msg)
+    async def on_connection(client: Client):
+        @client.message
+        async def on_message(reader: WebSocketReader):
+            msg = await reader.get()
+            await client.writer.send('You just send me the following message.')
+            await client.writer.send(msg)
 
 Fragments
 *********
